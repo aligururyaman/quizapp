@@ -127,44 +127,120 @@ export default function Home() {
   };
 
   // Grid'i başlat
-  const initializeGrid = (words) => {
-    const newGrid = Array(8).fill().map(() => Array(16).fill(''));
-    const positions = [];
+  const findMatchingWords = (mainWord, wordList) => {
+    // Ana kelimedeki harfleri bul
+    const mainLetters = mainWord.split('');
 
-    // En uzun kelimeyi bul
-    const maxWordLength = Math.max(...words.map(word => word.length));
-
-    // Güvenli başlangıç pozisyonları
-    const startRow = Math.floor(Math.random() * (8 - maxWordLength));
-    const startCol = Math.floor(Math.random() * (16 - maxWordLength));
-
-    // İlk kelimeyi yatay yerleştir
-    words[0].split('').forEach((letter, index) => {
-      newGrid[startRow][startCol + index] = letter;
-      positions.push({ row: startRow, col: startCol + index, letter });
+    // Diğer kelimeleri filtrele
+    return wordList.filter(word => {
+      if (word === mainWord) return false;
+      // Kelimenin en az bir harfi ana kelimede olmalı
+      return word.split('').some(letter => mainLetters.includes(letter));
     });
+  };
 
-    // İkinci kelimeyi dikey yerleştir
-    if (startRow + words[1].length <= 8) {
-      words[1].split('').forEach((letter, index) => {
-        newGrid[startRow + index][startCol] = letter;
-        if (index > 0) {
-          positions.push({ row: startRow + index, col: startCol, letter });
+  const initializeGrid = (allWords) => {
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    const tryInitialize = () => {
+      try {
+        const newGrid = Array(8).fill().map(() => Array(16).fill(''));
+        const positions = [];
+
+        // Rastgele bir ana kelime seç
+        const mainWord = allWords[Math.floor(Math.random() * allWords.length)];
+        const matchingWords = findMatchingWords(mainWord, allWords);
+
+        if (matchingWords.length < 2) {
+          attempts++;
+          if (attempts >= maxAttempts) {
+            window.location.reload();
+            return;
+          }
+          return tryInitialize();
         }
-      });
-    }
 
-    // Üçüncü kelimeyi dikey yerleştir
-    const thirdWordStartCol = startCol + 2;
-    if (startRow + words[2].length <= 8) {
-      words[2].split('').forEach((letter, index) => {
-        newGrid[startRow + index][thirdWordStartCol] = letter;
-        positions.push({ row: startRow + index, col: thirdWordStartCol, letter });
-      });
-    }
+        // Ana kelimeyi yatay yerleştir (ortaya yakın bir yere)
+        const startRow = 3;
+        const startCol = Math.floor((16 - mainWord.length) / 2);
 
-    setGrid(newGrid);
-    setSelectedPositions(positions);
+        // Ana kelimeyi yerleştir
+        for (let i = 0; i < mainWord.length; i++) {
+          newGrid[startRow][startCol + i] = mainWord[i];
+          positions.push({ row: startRow, col: startCol + i, letter: mainWord[i] });
+        }
+
+        // Kesişen kelimeleri yerleştir
+        let placedWords = 0;
+        for (let word of matchingWords) {
+          if (placedWords >= 2) break;
+
+          // Kesişme noktası bul
+          for (let i = 0; i < word.length; i++) {
+            const letter = word[i];
+            // Ana kelimede bu harfin konumunu bul
+            const intersectIndex = mainWord.indexOf(letter);
+
+            if (intersectIndex !== -1) {
+              // Dikey yerleştirme için yeterli alan var mı kontrol et
+              const intersectRow = startRow;
+              const intersectCol = startCol + intersectIndex;
+              const wordStartRow = intersectRow - i;
+
+              if (wordStartRow >= 0 && wordStartRow + word.length <= 8) {
+                // Kelimeyi dikey yerleştir
+                let canPlace = true;
+
+                // Çakışma kontrolü
+                for (let j = 0; j < word.length; j++) {
+                  if (j !== i && newGrid[wordStartRow + j][intersectCol] !== '') {
+                    canPlace = false;
+                    break;
+                  }
+                }
+
+                if (canPlace) {
+                  for (let j = 0; j < word.length; j++) {
+                    if (wordStartRow + j !== intersectRow) { // Kesişme noktasını tekrar yazma
+                      newGrid[wordStartRow + j][intersectCol] = word[j];
+                      positions.push({ row: wordStartRow + j, col: intersectCol, letter: word[j] });
+                    }
+                  }
+                  placedWords++;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // Eğer 3 kelime yerleştirilemediyse tekrar dene
+        if (placedWords < 2) {
+          attempts++;
+          if (attempts >= maxAttempts) {
+            window.location.reload();
+            return;
+          }
+          return tryInitialize();
+        }
+
+        setGrid(newGrid);
+        setSelectedPositions(positions);
+        setCurrentWords([mainWord, ...matchingWords.slice(0, 2)]);
+
+      } catch (error) {
+        console.error("Grid oluşturma hatası:", error);
+        attempts++;
+        if (attempts >= maxAttempts) {
+          window.location.reload();
+          return;
+        }
+        return tryInitialize();
+      }
+    };
+
+    tryInitialize();
   };
 
   // İlk yükleme
@@ -174,7 +250,8 @@ export default function Home() {
 
   // Tüm harflerin bulunup bulunmadığını kontrol et
   const checkAllLettersFound = (newFoundLetters) => {
-    const allUniqueLetters = [...new Set(currentWords.join(''))];
+    // Kelimelerdeki benzersiz harfleri olduğu gibi al, sadece büyük harfe çevir
+    const allUniqueLetters = [...new Set(currentWords.join('').toUpperCase().split(''))];
     return allUniqueLetters.every(letter => newFoundLetters.includes(letter));
   };
 
@@ -186,7 +263,8 @@ export default function Home() {
     setActiveWord(inputLetter);
     setAttempts(prev => prev + 1);
 
-    const allLetters = currentWords.join('').split('');
+    // Kelimelerdeki harfleri olduğu gibi kontrol et
+    const allLetters = currentWords.join('').toUpperCase().split('');
     const occurrences = allLetters.filter(letter => letter === inputLetter).length;
 
     if (occurrences > 0) {
@@ -194,7 +272,6 @@ export default function Home() {
       const newFoundLetters = [...foundLetters, inputLetter];
       setFoundLetters(newFoundLetters);
 
-      // Tüm harfler bulundu mu hemen kontrol et
       if (checkAllLettersFound(newFoundLetters)) {
         setTotalAttempts(prev => prev + attempts);
         setShowDialog(true);
@@ -239,6 +316,9 @@ export default function Home() {
             ))}
           </div>
         ))}
+      </div>
+      <div>
+        <p className='text-sm text-gray-400'>*Bulmanız gereken 3 kelime var</p>
       </div>
       <div className='flex flex-col items-center p-6 gap-4'>
         <Input
